@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "countdown-dashboard"
+version = "0.1.0"
+description = "DDL Countdown Dashboard - 会议截止日期倒计时"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {text = "MIT"}
+authors = [{name = "Your Name"}]
+
+[project.scripts]
+countdown = "countdown:main"
+
+[tool.setuptools]
+py-modules = ["countdown"]
