@@ -1,3 +1,4 @@
+import os
 import datetime
 
 def parse_datetime(s):
@@ -14,3 +15,12 @@ def parse_datetime(s):
         except ValueError:
             continue
     raise ValueError(f"Cannot parse datetime: {s}")
+
+def get_file_mtime(path):
+    """
+    Get last modification time of a file.
+    """
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0

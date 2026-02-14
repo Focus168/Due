@@ -1,11 +1,31 @@
 import sys
-import os
 import time
 import datetime
 import subprocess
-from . import model
+from . import utils
 
-def refresh_screen(target_name=None, data_path=None):
+def render_list(ddl_dict, estimated_set):
+    """
+    Render static list. Now accepts RAW DATA, not path.
+    """
+    if not ddl_dict:
+        print("No deadlines found. Use 'add' to create one.")
+        return
+
+    now = datetime.datetime.now()
+    for name in sorted(ddl_dict, key=lambda n: ddl_dict[n]):
+        ddl = ddl_dict[name]
+        rem = ddl - now
+        flag = " [E]" if name in estimated_set else ""
+        status = (
+            f"(remaining {rem.days}d)"
+            if rem.total_seconds() > 0
+            else "[expired]"
+        )
+        print(f"{name}: {ddl.strftime('%Y-%m-%d %H:%M')} {status}{flag}")
+
+
+def refresh_screen(target_name, data_fetcher_func):
     """
     Main TUI loop.
 
@@ -22,12 +42,10 @@ def refresh_screen(target_name=None, data_path=None):
     HIDE = "\033[?25l"
     SHOW = "\033[?25h"
 
-    path = data_path or model.get_data_path()
-    last_mtime = model.get_file_mtime(path)
+    # ❌ 不再自己算 mtime，完全依赖外部传入的函数
     first_run = True
 
     def clear_screen():
-        """清屏并光标回左上角：优先用系统 clear（输出到当前终端），否则用 ANSI。"""
         if sys.stdout.isatty():
             subprocess.run(["clear"])
         else:
@@ -40,15 +58,12 @@ def refresh_screen(target_name=None, data_path=None):
         while True:
             now = datetime.datetime.now()
 
-            base_ddls, estimated_set = model.load_deadlines(path)
-            all_ddls = base_ddls.copy()
+            # ✅ 关键点：调用传入的函数来获取数据！
+            # View 不知道这个数据怎么来的，它只管要。
+            all_ddls, estimated_set = data_fetcher_func()
 
-            # Inject ARR deadlines
-            for name, ddl in model.get_arr_list(3):
-                all_ddls[name] = ddl
-
-            # Target (single deadline) mode
             if target_name:
+                # Target Mode Logic
                 key = target_name.upper()
                 matches = [(n, d) for n, d in all_ddls.items() if key in n.upper()]
                 if not matches:
@@ -73,13 +88,11 @@ def refresh_screen(target_name=None, data_path=None):
                 if first_run:
                     print(f"{GREEN}Countdown to {name} started!{RESET}")
 
-                sys.stdout.write(
-                    f"\r{color}Time until {name}: {timer}{RESET}\033[K"
-                )
+                sys.stdout.write(f"\r{color}Time until {name}: {timer}{RESET}\033[K")
                 sys.stdout.flush()
 
-            # Dashboard mode
             else:
+                # Dashboard Mode Logic
                 active = []
                 for name, ddl in all_ddls.items():
                     rem = ddl - now
@@ -89,48 +102,23 @@ def refresh_screen(target_name=None, data_path=None):
                 active.sort(key=lambda x: x[2])
 
                 clear_screen()
-
-                print(
-                    f"{BOLD}"
-                    f"{'CONFERENCE':<10} | {'BEIJING TIME':^20} | {'REMAINING':<18}"
-                    f"{RESET}",
-                    flush=True,
-                )
+                print(f"{BOLD}{'CONFERENCE':<10} | {'BEIJING TIME':^20} | {'REMAINING':<18}{RESET}", flush=True)
                 print("-" * 55, flush=True)
 
                 for name, ddl, rem in active:
                     color = RED if rem.days < 2 else ORANGE if rem.days < 14 else GREEN
                     mark = "E" if name in estimated_set else "C"
-                    timer = (
-                        f"{rem.days:02d}d "
-                        f"{rem.seconds//3600:02d}h "
-                        f"{(rem.seconds%3600)//60:02d}m "
-                        f"{rem.seconds%60:02d}s"
-                    )
-                    print(
-                        f"{color}{name:<10}{RESET} | "
-                        f"({mark}) {ddl.strftime('%Y-%m-%d %H:%M'):^15} | "
-                        f"{color}{timer}{RESET}\033[K",
-                        flush=True,
-                    )
+                    timer = f"{rem.days:02d}d {rem.seconds//3600:02d}h {(rem.seconds%3600)//60:02d}m {rem.seconds%60:02d}s"
+                    print(f"{color}{name:<10}{RESET} | ({mark}) {ddl.strftime('%Y-%m-%d %H:%M'):^15} | {color}{timer}{RESET}\033[K", flush=True)
 
-                hint = (
-                    f"{active[0][0]} Final Call!" if active and active[0][2].days < 2
-                    else f"Next urgent: {active[0][0]} in {active[0][2].days}d"
-                    if active and active[0][2].days < 14
-                    else f"Next: {active[0][0]}" if active
-                    else "All deadlines passed."
-                )
+                hint = "All deadlines passed."
+                if active:
+                     if active[0][2].days < 2: hint = f"{active[0][0]} Final Call!"
+                     elif active[0][2].days < 14: hint = f"Next urgent: {active[0][0]} in {active[0][2].days}d"
+                     else: hint = f"Next: {active[0][0]}"
 
-                print(
-                    f"\n{BOLD}Now:{RESET} {now.strftime('%Y-%m-%d %H:%M:%S')} | "
-                    f"{RED}{hint}{RESET}\033[K",
-                    flush=True,
-                )
-                print(
-                    f"{DIM}To add a deadline: due add \"NAME\" \"YYYY-MM-DD HH:MM\" [--estimated]{RESET}\033[K",
-                    flush=True,
-                )
+                print(f"\n{BOLD}Now:{RESET} {now.strftime('%Y-%m-%d %H:%M:%S')} | {RED}{hint}{RESET}\033[K", flush=True)
+                print(f"{DIM}To add: due add \"NAME\" \"YYYY-MM-DD HH:MM\" [--estimated]{RESET}\033[K", flush=True)
 
             first_run = False
             time.sleep(1)
@@ -138,4 +126,3 @@ def refresh_screen(target_name=None, data_path=None):
     except KeyboardInterrupt:
         sys.stdout.write(SHOW)
         print("\nDashboard closed.")
-

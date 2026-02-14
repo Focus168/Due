@@ -1,16 +1,36 @@
 import os
 import json
+import datetime
 from pathlib import Path
 from . import utils
 
-# Directory of the current script
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+def get_data_path():
+    """
+    Determine the storage path for the data file.
+    Uses ~/.config/ddl_dashboard/data.json
+    """
+    app_dir = Path.home() / ".config" / "due"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    return str(app_dir / "data.json")
 
-# Default data file (project-local)
-DEFAULT_DATA_PATH = os.path.join(SCRIPT_DIR, "deadlines.json")
+def get_arr_list(count=3):
+    """
+    Generate upcoming ARR-style monthly deadlines.
+    (Moved from Controller to Model)
+    """
+    now = datetime.datetime.now()
+    result = []
+    year, month = now.year, now.month
 
-# User-level fallback data file
-USER_DATA_PATH = os.path.join(os.path.expanduser("~"), ".countdown_deadlines.json")
+    while len(result) < count:
+        ddl = datetime.datetime(year, month, 16, 19, 59, 0)
+        if ddl > now:
+            result.append((f"ARR {month:02d}", ddl))
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return result
 
 def load_deadlines(data_path=None):
     """
@@ -47,7 +67,6 @@ def load_deadlines(data_path=None):
 
     return ddl_dict, estimated
 
-
 def save_deadlines(ddl_dict, estimated_set, data_path=None):
     """
     Save deadlines to JSON file.
@@ -68,25 +87,6 @@ def save_deadlines(ddl_dict, estimated_set, data_path=None):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-def get_data_path():
-    """
-    Determine which data file to use.
-
-    Priority:
-    1. deadlines.json in script directory
-    2. ~/.countdown_deadlines.json
-    """
-    if os.path.exists(DEFAULT_DATA_PATH):
-        return DEFAULT_DATA_PATH
-    return USER_DATA_PATH
-
-
-def get_data_path():
-    # Automatically get users' config catalog, such ~/.config/ddl_dashboard/data.json
-    app_dir = Path.home() / ".config" / "ddl_dashboard"
-    app_dir.mkdir(parents=True, exist_ok=True) # if the catalog does not exist, then create one
-    return app_dir / "data.json"
-
 def add_deadline(name, dt_str, estimated=False, data_path=None):
     """
     Add a new deadline entry.
@@ -99,4 +99,5 @@ def add_deadline(name, dt_str, estimated=False, data_path=None):
         estimated_set.add(name)
 
     save_deadlines(ddl_dict, estimated_set, path)
+    # 这里虽然是 Model，但为了方便 CLI 反馈，保留 print，或者以后改成 return True
     print(f"Added: {name} -> {dt_str}")
