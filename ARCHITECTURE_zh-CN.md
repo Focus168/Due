@@ -1,5 +1,5 @@
 架构设计文档 (Architecture Design Doc)
-项目名称: Due (DDL Dashboard) 状态: 正在开发 (In Development) 作者: [Your Name] 最后更新: 2026-02-12
+项目名称: Due (DDL Dashboard) 状态: 正在开发 (In Development) 作者: Focus168 最后更新: 2026-02-18
 
 1. 系统概览 (System Overview)
 1.1 目标 (Goal)
@@ -33,10 +33,9 @@ ddl-dashboard/
 │       ├── view.py         # View: TUI 渲染与屏幕刷新
 │       └── utils.py        # Utils: 通用工具函数 (如时间解析)
 └── tests/                  # 测试套件 (预留)
+
 3. 架构设计 (Architecture Design)
 系统采用经典的 MVC (Model-View-Controller) 架构模式，以实现关注点分离（Separation of Concerns）。
-
-Shutterstock
 
 3.1 Controller (main.py)
 
@@ -73,71 +72,92 @@ Shutterstock
 依赖: 仅依赖 Python 标准库，不引用 Controller。
 
 4. 路由与指令设计 (Routing & Commands)
-当前版本使用 Python 原生 sys.argv 进行参数解析。系统支持标准的 CRUD 操作。
 
-命令模式: due <command> [arguments]
+本系统采用混合路由策略：支持 CLI 参数启动（一次性执行）与 REPL 交互模式（运行时指令）。
 
-操作 (CRUD)	指令 (Command)	参数 (Arguments)	处理函数 (Handler)	描述
-Read (View)	(无)	(无)	view.render_dashboard()	进入动态倒计时看板模式 (TUI)。
-Create	add	name, date	model.add_deadline()	添加一个新的 DDL 任务。
-Read (List)	list	(无)	view.render_list()	静态打印所有任务列表并退出。
-Update	edit	name, new_date	model.update_deadline()	修改现有任务的日期。
-Delete	remove	name	model.delete_deadline()	根据名称删除任务。
+4.1 CLI 启动模式 (Entry Points)
+
+通过 python -m src.due.controller [args] 触发。
+
+指令 (Command)	参数 (Arguments)	描述 (Description)
+(Default)	(None)	启动交互式动态倒计时看板 (Dashboard TUI)。
+add	name time [--est]	快速添加任务并退出 (Headless mode)。
+list	(None)	打印当前所有任务的静态列表并退出。
+[target]	name_keyword	启动看板并直接聚焦 (Focus) 于特定任务。
+4.2 交互式指令 (Interactive REPL)
+
+在看板运行中，通过键盘中断进入暂停状态，支持以下运行时指令：
+
+指令 (Command)	参数 (Arguments)	处理器 (Handler)	功能描述
+ls	(None)	view.switch_to_dashboard	切换视图至全局看板模式。
+show / focus	name	view.switch_to_target	切换视图至单任务专注模式。
+add	name time [--est]	controller.handle_add	运行时添加任务，添加后自动恢复刷新。
+del / rm	name	controller.handle_delete	(Pending) 根据名称删除指定任务。
+q / quit	(None)	sys.exit	安全退出程序。
+
 5. 数据流与存储 (Data Flow & Storage)
-5.1 数据存储
 
-格式: JSON。
+5.1 数据持久化 (Persistence)
 
-路径: 优先查找用户配置目录（如 ~/.config/due/data.json），如果不存在则自动创建。
+系统遵循 XDG Base Directory 标准，实现用户数据与程序代码的物理隔离。
 
-初始化策略 (Copy-on-Write): 程序初次运行时，若未检测到用户数据，将自动从源码包中复制一份包含示例数据（如 ARR Deadlines）的模板文件到用户目录。
+存储格式: 标准 JSON ({"conferences": {...}})。
 
-5.2 数据流向示例 (以 "Add Task" 为例)
+存储路径: ~/.config/due/data.json (macOS/Linux)。
 
-User: 输入 due add "NeurIPS" "2026-05-15"。
+初始化策略 (Copy-on-Write / Templating):
 
-Controller (main.py): * 解析 sys.argv，识别动词 add。
+程序启动时检查用户配置目录。
 
-提取参数 "NeurIPS" 和 "2026-05-15"。
+若 data.json 不存在，读取源码包内的 default_deadlines.json (Factory Defaults)。
 
-调用 utils.parse_datetime 验证格式。
+将默认模板复制至用户目录，完成初始化。
 
-Model (model.py):
+后续所有读写操作仅针对用户目录下的副本，确保程序升级不覆盖用户数据。
 
-读取 data.json 到内存字典。
+5.2 数据流向 (Data Flow)
 
-将新任务追加到字典中。
+以 "Interactive Delete" (交互式删除) 为例：
 
-将更新后的字典序列化回写至 data.json。
+View Layer: 用户在 TUI 输入 del "ICML"。view.py 解析输入，调用注入的 delete_handler 回调函数。
 
-View (view.py):
+Controller Layer: controller.py 接收请求，调用 model.delete_deadline("ICML")。
 
-Controller 调用 View 输出成功提示：“Successfully added NeurIPS”。
+Model Layer:
+
+加载 ~/.config/due/data.json 至内存。
+
+执行字典键值移除操作 (Key Removal)。
+
+调用 json.dump 原子性回写文件。
+
+Feedback: View 层捕获执行结果，刷新屏幕显示更新后的任务列表。
 
 6. 工程约束与决策 (Constraints & Decisions)
-6.1 依赖管理
 
-决策: 坚持 Zero-Dependency（零第三方依赖）。
+6.1 零依赖原则 (Zero-Dependency)
 
-理由: 为了让该工具极其容易安装（Copy-paste 或简单的 pip install），不给用户的 Python 环境增加负担。
+决策: 仅使用 Python 标准库 (os, sys, json, datetime, shlex, select)。
 
-6.2 错误处理 (Error Handling)
+理由: 确保极高的可移植性 (Portability) 和安装简便性，无需 pip install 即可在任何标准 Python 3 环境运行。
 
-策略: Fail Fast, Print Friendly。
+6.2 健壮性设计 (Robustness)
 
-实现: * 对于用户输入错误（如日期格式不对），捕获异常并打印清晰的提示信息（"Invalid date format, please use YYYY-MM-DD"），而不是打印 Python Traceback。
+非阻塞 I/O: 使用 select.select 实现键盘监听，确保在等待用户输入时不会阻塞主线程的倒计时刷新（UI Render Loop）。
 
-对于数据损坏（JSON Decode Error），自动备份坏文件并初始化新文件，防止程序崩溃。
+参数解析: 使用 shlex.split 处理带引号的复杂字符串参数，确保 add "Task Name" ... 被正确解析为单个参数。
 
-6.3 国际化 (i18n)
+容错机制:
 
-当前状态: 代码注释与 CLI 输出目前以英文为主。
+遇到损坏的 JSON 文件时，自动降级为空状态，防止 Crash。
 
-文档: 架构文档提供中英双语版本，以支持更广泛的开发者社区。
+用户输入错误格式日期时，REPL 保持在循环中提示重试，而非直接抛出异常退出。
 
 7. 未来规划 (Future Work)
-交互增强: 在 TUI 模式下引入 keyboard 监听，支持按键直接删除/添加任务（无需退出看板）。
+添加新路由: 支持 del / rm 命令，允许用户通过 CLI 或 REPL 删除指定任务。
 
-参数解析升级: 引入 argparse 以支持 --help 和更复杂的参数选项（如 --urgent 标记）。
+高级数据管理: 实现 undo (撤销) 功能，防止误删操作。
 
-测试覆盖: 为核心的时间计算逻辑（utils.py）和数据读写逻辑（model.py）添加单元测试。
+视图增强: 增加按时间排序 (Sort by Date) 或按紧急程度排序 (Sort by Urgency) 的切换选项。
+
+打包分发: 提供 setup.py 或 pyproject.toml，支持通过 pipx install due-dashboard 全局安装。

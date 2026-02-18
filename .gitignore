@@ -6,3 +6,5 @@ dist/
 build/
 .eggs/
 *.egg
+*.json
+!src/due/default_deadlines.json  # An exclamation mark indicates "Ignore all json except this file."

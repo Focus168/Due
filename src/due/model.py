@@ -1,17 +1,40 @@
 import os
 import json
 import datetime
+import shutil
 from pathlib import Path
 from . import utils
+
+PACKAGE_DIR = Path(__file__).parent
+DEFAULT_TEMPLATE_PATH = PACKAGE_DIR / "default_deadlines.json"
 
 def get_data_path():
     """
     Determine the storage path for the data file.
     Uses ~/.config/ddl_dashboard/data.json
+    Get the path of the user data file.
+    If the user file does not exist, copy a copy of the past (initialization) from the default template.
     """
-    app_dir = Path.home() / ".config" / "due"
-    app_dir.mkdir(parents=True, exist_ok=True)
-    return str(app_dir / "data.json")
+    
+    # 1. Define the location for storing user data (following the XDG standard, placed under ~/.config/due)
+    user_config_dir = Path.home() / ".config" / "due"
+    user_data_file = user_config_dir / "data.json"
+    user_config_dir.mkdir(parents=True, exist_ok=True)
+
+    # 2. If the user file does not exist, execute the "initialization" logic
+    if not user_data_file.exists():
+        user_config_dir.mkdir(parents=True, exist_ok=True)
+        
+        if DEFAULT_TEMPLATE_PATH.exists():
+            # Plan A: template exist, then copy template -> user data file
+            try:
+                shutil.copy(DEFAULT_TEMPLATE_PATH, user_data_file)
+            except OSError:
+                pass # If failed to copy, then just create an empty file in the next step
+        else:
+            # Plan B：No template(lose track of dev env), just create an empty file and save empty data
+            save_deadlines({}, set(), str(user_data_file))
+    return str(user_data_file)
 
 def get_arr_list(count=3):
     """

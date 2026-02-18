@@ -1,18 +1,32 @@
+"""
+The View layer should not directly reference the Model; it only accepts data dictionaries and callback functions.
+"""
+import os
 import sys
 import time
 import datetime
 import subprocess
+import select
+import shlex
+import random
+from pathlib import Path
+from typing import Callable, Optional, Tuple, Dict, Set
 from . import utils
 
-def render_list(ddl_dict, estimated_set):
+def render_list(ddl_dict: Dict[str, datetime.datetime], estimated_set: Set[str]) -> None:
     """
-    Render static list. Now accepts RAW DATA, not path.
+    Renders a static list of all deadlines to stdout.
+
+    Args:
+        ddl_dict: A dictionary mapping deadline names to datetime objects.
+        estimated_set: A set of names that are marked as estimated.
     """
     if not ddl_dict:
         print("No deadlines found. Use 'add' to create one.")
         return
 
     now = datetime.datetime.now()
+    # Sort by deadline date
     for name in sorted(ddl_dict, key=lambda n: ddl_dict[n]):
         ddl = ddl_dict[name]
         rem = ddl - now
@@ -22,53 +36,206 @@ def render_list(ddl_dict, estimated_set):
             if rem.total_seconds() > 0
             else "[expired]"
         )
+        # if rem.total_seconds() > 0:
+        #     status = f"(remaining {rem.days}d)"
+        # else:
+        #     status = "[expired]"
         print(f"{name}: {ddl.strftime('%Y-%m-%d %H:%M')} {status}{flag}")
 
 
-def refresh_screen(target_name, data_fetcher_func):
+def refresh_screen(
+    initial_target_name: Optional[str], 
+    data_fetcher_func: Callable[[], Tuple[Dict, Set]], 
+    add_handler_func: Optional[Callable[[str, str, bool], None]] = None
+) -> None:
     """
-    Main TUI loop.
+    Starts the main TUI (Text User Interface) loop with auto-refresh.
 
-    Displays:
-    - All active deadlines (dashboard mode)
-    - A single matching deadline (target mode)
+    Displays a dynamic dashboard of deadlines, sorted by urgency. The loop 
+    refreshes every second and listens for user input to pause and execute 
+    commands (e.g., adding new tasks).
+
+    Args:
+        target_name: 
+            If provided, the dashboard filters to show only the deadline 
+            matching this substring (case-insensitive). If None, shows all.
+        data_fetcher_func: 
+            A callback function that returns a tuple `(ddl_dict, estimated_set)`.
+            This allows the view to pull fresh data on every tick without 
+            knowing about the storage backend.
+        add_handler_func: 
+            A callback function with signature `(name, time_str, is_estimated)`.
+            Used to handle 'add' commands entered during the pause state.
+
+    Raises:
+        KeyboardInterrupt: If the user presses Ctrl+C to exit.
     """
+
+    # ANSI Color Codes
     RED = "\033[38;5;196m"
     ORANGE = "\033[38;5;214m"
     GREEN = "\033[38;5;28m"
     RESET = "\033[0m"
     BOLD = "\033[1m"
-    DIM = "\033[2m\033[38;5;240m"  # small gray text for hints
-    HIDE = "\033[?25l"
-    SHOW = "\033[?25h"
+    DIM = "\033[2m\033[38;5;240m"
+    HIDE = "\033[?25l" # Hide Cursor
+    SHOW = "\033[?25h" # Show Cursor
 
-    # ❌ 不再自己算 mtime，完全依赖外部传入的函数
     first_run = True
+    current_target = initial_target_name
 
     def clear_screen():
-        if sys.stdout.isatty():
+        """Clears the terminal screen effectively on various platforms."""
+        if sys.stdout.isatty(): # Only clear if we're in a terminal
             subprocess.run(["clear"])
         else:
-            sys.stdout.write("\033[2J\033[H")
+            sys.stdout.write("\033[2J\033[H") # ANSI escape to clear screen and move cursor to top-left
             sys.stdout.flush()
 
-    try:
+    try: # Hide cursor for better UX during dashboard display
         sys.stdout.write(HIDE)
 
         while True:
-            now = datetime.datetime.now()
+            # --- 1. Non-blocking Input Listener ---
+            # select.select() checks if sys.stdin has data waiting to be read.
+            # Timeout is 0, so it returns immediately (non-blocking).
+            if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+                line = sys.stdin.readline()
+                if line: # If user pressed ENTER or typed something
+                    sys.stdout.write(SHOW) # show cursor for input
+                    print(f"\n{BOLD}>> PAUSED. Enter command (add/q/c):{RESET}")
+                    print(f"{DIM} Format: ls Show ALL deadlines (Dashboard){RESET}")
+                    print(f"{DIM} Format: show \"Name\" Focus on ONE deadline{RESET}")
+                    print(f"{DIM} Format: add \"Task Name\" \"YYYY-MM-DD HH:MM\" [--est]{RESET}")
+                    print(f"{DIM} Format: q (to quit){RESET}")
+                    
+                    while True:
+                        try:
+                            raw_input = input(f"{BOLD}> {RESET}").strip()
 
-            # ✅ 关键点：调用传入的函数来获取数据！
-            # View 不知道这个数据怎么来的，它只管要。
+                            # If it is empty, press Enter -> Exit the pause and resume operation
+                            if not raw_input:
+                                print("Resuming...")
+                                break
+                                
+                            parts = shlex.split(raw_input)
+                            cmd = parts[0].lower()
+
+                            if cmd == 'q':
+                                sys.stdout.write(SHOW)
+                                sys.exit(0)
+                            
+                            elif cmd == 'ls':
+                            # --- Switch back to Dashboard Mode ---
+                                current_target = None
+                                print(f"{GREEN}Switched to Dashboard view.{RESET}")
+                                time.sleep(0.1)
+                                break
+                            
+                            elif cmd in ('show', 'focus'):
+                            # --- Independent rendering module: Target Mode ---
+                                if len(parts) < 2:
+                                    print(f"{RED}Error: Please specify a name. e.g., show 'ICLR 27'{RESET}")
+                                    continue
+
+                                target_candidate = parts[1]
+                                key = target_candidate.upper()
+                                matches = [(n, d) for n, d in all_ddls.items() if key in n.upper()]
+
+                                if not matches:
+                                    print(f"{RED}Target '{target_candidate}' not found.{RESET}")
+                                    continue
+                                
+                                name, ddl = matches[0]
+                                clear_screen()
+                                print(f"{GREEN}Focusing on '{name}'...{RESET}")
+                                
+                                # Hide the cursor and get ready to start flashing
+                                sys.stdout.write(HIDE)
+
+                                while True:
+                                    # 1. Listen for exit signals (use select instead of sleep to achieve delay-free exit)
+                                    # timeout=1.0 means: If there is no key press, wait for 1 second (refresh interval); If there is a key press, return immediately
+                                    if sys.stdin in select.select([sys.stdin], [], [], 1.0)[0]:
+                                        _ = sys.stdin.readline() 
+                                        print(f"\n{GREEN}Returning to main menu...{RESET}")
+                                        print(f"\n{BOLD}>> PAUSED. Enter command (add/q/c):{RESET}")
+                                        print(f"{DIM} Format: ls Show ALL deadlines (Dashboard){RESET}")
+                                        print(f"{DIM} Format: show \"Name\" Focus on ONE deadline{RESET}")
+                                        print(f"{DIM} Format: add \"Task Name\" \"YYYY-MM-DD HH:MM\" [--est]{RESET}")
+                                        print(f"{DIM} Format: q (to quit){RESET}")
+                                        time.sleep(0.5)
+                                        break # Break out of the infinite loop of the show and return to the outermost input to wait
+
+                                    # 2. Calculate remaining time
+                                    now = datetime.datetime.now()
+                                    remaining = ddl - now
+                                    
+                                    if remaining.total_seconds() <= 0:
+                                        print(f"\r{RED}{name} TIME'S UP!   {RESET}")
+                                        break
+
+                                    days = remaining.days
+                                    color = RED if days < 2 else ORANGE if days < 14 else GREEN
+                                    timer = (
+                                        f"{days:02d}d "
+                                        f"{remaining.seconds//3600:02d}h "
+                                        f"{(remaining.seconds%3600)//60:02d}m "
+                                        f"{remaining.seconds%60:02d}s"
+                                    )
+
+                                    # 3. Rendering: Countdown + Bottom menu
+                                    # First line: Countdown
+                                    sys.stdout.write(f"\r{color}Time until {name}: {timer}{RESET}\033[K")
+                                    
+                                    # The second line: Grey friendly prompt (telling users how to get out)
+                                    sys.stdout.write(f"\n{DIM}[Press ENTER to Return]{RESET}\033[K\033[A")
+                                    
+                                    sys.stdout.flush()
+                                
+                                # After exiting the show loop, manually clear the screen for a better experience
+                                clear_screen()
+                                # At this point, the program will return to the outer "PAUSED" state and wait for the next command
+
+                            elif cmd == 'add' and add_handler_func:
+                                # Robust Argument Parsing
+                                if len(parts) < 3:
+                                    print(f"{RED}Error: Missing arguments.{RESET}")
+                                    print("Usage: add \"Name\" \"Time\" [--est]")
+                                else:
+                                    name = parts[1]
+                                    time_str = parts[2]
+                                    is_est = "--est" in parts or "--estimated" in parts
+                                    
+                                    # Call the controller's handler
+                                    try:
+                                        add_handler_func(name, time_str, is_est)
+                                        print(f"{GREEN}✓ Added '{name}' successfully.{RESET}")
+                                    except Exception as e:
+                                        print(f"{RED}Failed to add: {e}{RESET}")
+                                        
+                            else:
+                                print(f"{ORANGE}Unknown command or bad format.{RESET}")
+
+                        except ValueError as e:
+                            print(f"{RED}Parsing Error: {e} (Did you forget a closing quote?){RESET}")
+                    
+                time.sleep(1) # Give user a moment to read the result
+                sys.stdout.write(HIDE) # Hide cursor again
+
+            # --- 2. Normal refresh logic: Data Fetching & Rendering ---
+            now = datetime.datetime.now()
             all_ddls, estimated_set = data_fetcher_func()
 
-            if target_name:
+            if current_target:
                 # Target Mode Logic
-                key = target_name.upper()
+                key = current_target.upper()
                 matches = [(n, d) for n, d in all_ddls.items() if key in n.upper()]
                 if not matches:
-                    print(f"Unknown target '{target_name}'")
-                    break
+                    print(f"\n{RED}Target '{current_target}' not found. Switching to Dashboard...{RESET}")
+                    current_target = None
+                    time.sleep(1)
+                    continue
 
                 name, ddl = matches[0]
                 remaining = ddl - now
@@ -84,9 +251,6 @@ def refresh_screen(target_name, data_fetcher_func):
                     f"{(remaining.seconds%3600)//60:02d}m "
                     f"{remaining.seconds%60:02d}s"
                 )
-
-                if first_run:
-                    print(f"{GREEN}Countdown to {name} started!{RESET}")
 
                 sys.stdout.write(f"\r{color}Time until {name}: {timer}{RESET}\033[K")
                 sys.stdout.flush()
@@ -111,18 +275,48 @@ def refresh_screen(target_name, data_fetcher_func):
                     timer = f"{rem.days:02d}d {rem.seconds//3600:02d}h {(rem.seconds%3600)//60:02d}m {rem.seconds%60:02d}s"
                     print(f"{color}{name:<10}{RESET} | ({mark}) {ddl.strftime('%Y-%m-%d %H:%M'):^15} | {color}{timer}{RESET}\033[K", flush=True)
 
-                hint = "All deadlines passed."
+                hint = "No upcoming deadlines."
                 if active:
                      if active[0][2].days < 2: hint = f"{active[0][0]} Final Call!"
                      elif active[0][2].days < 14: hint = f"Next urgent: {active[0][0]} in {active[0][2].days}d"
                      else: hint = f"Next: {active[0][0]}"
 
                 print(f"\n{BOLD}Now:{RESET} {now.strftime('%Y-%m-%d %H:%M:%S')} | {RED}{hint}{RESET}\033[K", flush=True)
-                print(f"{DIM}To add: due add \"NAME\" \"YYYY-MM-DD HH:MM\" [--estimated]{RESET}\033[K", flush=True)
+                print(f"{DIM}[Press ENTER to pause and add task] [Ctrl+C to quit]{RESET}\033[K", flush=True)
 
             first_run = False
             time.sleep(1)
 
     except KeyboardInterrupt:
         sys.stdout.write(SHOW)
-        print("\nDashboard closed.")
+
+        # Get the data file path for a more informative exit message (showing where the state is saved)
+        current_dir = os.getcwd()
+        # Directly calculate the standard storage path (following the logic of the Model)
+        data_path = Path.home() / ".config" / "due" / "data.json"
+
+        quotes = [
+            "Deadlines are the ultimate inspiration. — Mark Twain",
+            "Done is better than perfect. Keep moving.",
+            "The only way to do great work is to love what you do.",
+            "Time flows, but your code remains.",
+            "Focus on the step in front of you, not the whole staircase.",
+            "Rest, then conquer.",
+            "See you at the top.", 
+            "Every second you invest now pays dividends later."
+        ]
+        quote = random.choice(quotes)
+        
+        # Print an elegant exit interface
+        CYAN = "\033[38;5;51m"
+        GRAY = "\033[38;5;240m"
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+
+        print(f"\n\n{RED}[!] INTERRUPT SIGNAL RECEIVED{RESET}")
+        print(f"{GRAY}{timestamp} • Dashboard halted.{RESET}")
+        print(f"{GRAY}>> Working Directory :{RESET} {current_dir}")
+        print(f"{GRAY}>> Storage Location  :{RESET} {data_path}")
+        print(f"\n   {CYAN}\"{quote}\"{RESET}\n")
+        
+        print(f"{DIM}[SESSION TERMINATED]{RESET}")
+        sys.exit(0)

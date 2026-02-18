@@ -19,7 +19,7 @@ def main():
 
     # ---------------------------------------------------------
     # Define how to get al the datat
-    # Controller 负责把“存储的数据”和“生成的ARR数据”拼在一起
+    # Controller is responsible for piecing together the "stored data" and the "generated ARR data"
     # ---------------------------------------------------------
     def get_combined_data():
         # 1. 从文件加载基础数据
@@ -35,6 +35,9 @@ def main():
             
         return all_ddls, estimated
     # ---------------------------------------------------------
+ 
+    def handle_add_from_view(name, time_str, is_est):
+        model.add_deadline(name, time_str, is_est, path)
 
     if len(sys.argv) >= 2:
         cmd = sys.argv[1].lower()
@@ -57,14 +60,14 @@ def main():
             view.render_list(data, estimated)
             return
 
-    # Dashboard 模式
-    target = sys.argv[1] if len(sys.argv) > 1 else None
+    # Dashboard Mode
+    target = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] not in ["add", "list"] else None
     if target in ("add", "list"):
         target = None
 
-    # 把“获取数据的函数”传给 View，而不是传数据本身
+    # Send the function but 把“获取数据的函数”传给 View，而不是传数据本身
     # 这样 View 就可以在循环里不断调用它来刷新数据
-    view.refresh_screen(target, get_combined_data)
+    view.refresh_screen(target, get_combined_data, handle_add_from_view)
 
 
 if __name__ == "__main__":
