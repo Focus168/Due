@@ -31,18 +31,17 @@ You will see the live countdown dashboard. Press ENTER to pause and access the m
 You can also use one-off commands to manage tasks without entering the dashboard.
 
 **Add a new deadline:**
-
 ```bash
 # Format: add "Name" "YYYY-MM-DD HH:MM"
 python3 -m src.due.controller add "ICLR 2026" "2025-10-01 23:59"
 ```
-Add an estimated deadline (marked with [E]):
 
+**Add an estimated deadline (marked with [E]):**
 ```bash
 python3 -m src.due.controller add "NeurIPS" "2025-05-22 05:00" --estimated
 ```
-List all tasks (Static view):
 
+**List all tasks (Static view):**
 ```bash
 python3 -m src.due.controller list
 ```
