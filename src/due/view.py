@@ -91,14 +91,19 @@ def refresh_screen(
         else:
             sys.stdout.write("\033[2J\033[H") # ANSI escape to clear screen and move cursor to top-left
             sys.stdout.flush()
+        # if os.name == 'nt':
+        #     os.system('cls')
+        # else:
+        #     os.system('clear')
 
     try: # Hide cursor for better UX during dashboard display
         sys.stdout.write(HIDE)
-
+        clear_screen()
         while True:
             # --- 1. Non-blocking Input Listener ---
             # select.select() checks if sys.stdin has data waiting to be read.
             # Timeout is 0, so it returns immediately (non-blocking).
+            clear_screen()
             if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
                 line = sys.stdin.readline()
                 if line: # If user pressed ENTER or typed something
@@ -256,7 +261,7 @@ def refresh_screen(
                 sys.stdout.flush()
 
             else:
-                # Dashboard Mode Logic
+                # Dashboard Mode Logic (Auto-Align Version)
                 active = []
                 for name, ddl in all_ddls.items():
                     rem = ddl - now
@@ -265,15 +270,22 @@ def refresh_screen(
 
                 active.sort(key=lambda x: x[2])
 
+                # Dynamically calculate the width of the longest name
+                if active:
+                    max_name_len = max(len(x[0]) for x in active)
+                    col_width = max(max_name_len, 12) # At least leave room for the word "DEADLINES"
+                else:
+                    col_width = 12
+                
                 clear_screen()
-                print(f"{BOLD}{'CONFERENCE':<10} | {'BEIJING TIME':^20} | {'REMAINING':<18}{RESET}", flush=True)
-                print("-" * 55, flush=True)
+                print(f"{BOLD}{'DEADLINES':^{col_width}} | {'BEIJING TIME':^20} | {'REMAINING':^18}{RESET}", flush=True)
+                print("-" * (col_width + 43), flush=True)
 
                 for name, ddl, rem in active:
                     color = RED if rem.days < 2 else ORANGE if rem.days < 14 else GREEN
                     mark = "E" if name in estimated_set else "C"
                     timer = f"{rem.days:02d}d {rem.seconds//3600:02d}h {(rem.seconds%3600)//60:02d}m {rem.seconds%60:02d}s"
-                    print(f"{color}{name:<10}{RESET} | ({mark}) {ddl.strftime('%Y-%m-%d %H:%M'):^15} | {color}{timer}{RESET}\033[K", flush=True)
+                    print(f"{color}{name:>{col_width}}{RESET} | ({mark}) {ddl.strftime('%Y-%m-%d %H:%M'):^15} | {color}{timer}{RESET}\033[K", flush=True)
 
                 hint = "No upcoming deadlines."
                 if active:
@@ -303,7 +315,10 @@ def refresh_screen(
             "Focus on the step in front of you, not the whole staircase.",
             "Rest, then conquer.",
             "See you at the top.", 
-            "Every second you invest now pays dividends later."
+            "Every second you invest now pays dividends later.",
+            "Simplicity is the ultimate sophistication.",
+            "Focus is about saying no.",
+            "Time flows, but your code remains."
         ]
         quote = random.choice(quotes)
         
