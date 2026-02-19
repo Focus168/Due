@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""
-DDL Countdown Dashboard
+"""Main entry point for the DDL Countdown Dashboard.
 
-A terminal-based countdown dashboard for conference deadlines.
-Data is stored in a JSON file and automatically reloaded when modified.
-Supports adding new deadlines via CLI subcommands.
+This module orchestrates the interaction between the data model and the
+TUI view. It handles CLI arguments for one-off commands and manages
+the lifecycle of the interactive dashboard.
 """
 
 import sys
@@ -12,33 +11,33 @@ from . import model
 from . import view
 
 def main():
-    """
-    CLI entry point.
-    """
+    """Parses CLI arguments and launches either the dashboard or a subcommand."""
     path = model.get_data_path()
 
-    # ---------------------------------------------------------
-    # Define how to get al the datat
-    # Controller is responsible for piecing together the "stored data" and the "generated ARR data"
-    # ---------------------------------------------------------
     def get_combined_data():
-        # 1. 从文件加载基础数据
+        """Fetches and merges stored deadlines with dynamically generated ones.
+        
+        Returns:
+            tuple: A dictionary of all deadlines and a set of estimated ones.
+        """
+        # Load persistent data from the local JSON file.
         base_ddls, estimated = model.load_deadlines(path)
         
-        # 2. 生成 ARR 数据
+        # Generate dynamic ARR (Annual Rolling Review) deadlines.
         arr_list = model.get_arr_list(3)
         
-        # 3. 合并 (Python 3.9+ 语法: base_ddls | dict(arr_list) 也可以)
+        # Merge datasets into a single unified view.
         all_ddls = base_ddls.copy()
         for name, ddl in arr_list:
             all_ddls[name] = ddl
             
         return all_ddls, estimated
-    # ---------------------------------------------------------
  
     def handle_add_from_view(name, time_str, is_est):
+        """Callback to allow the View to trigger data persistence in the Model."""
         model.add_deadline(name, time_str, is_est, path)
 
+    # Process CLI subcommands (one-off tasks).
     if len(sys.argv) >= 2:
         cmd = sys.argv[1].lower()
         
@@ -55,18 +54,17 @@ def main():
             return
 
         if cmd == "list":
-            # List 模式：只需要获取一次数据传给 View
+            # Static list mode for a quick snapshot of all tasks.
             data, estimated = get_combined_data()
             view.render_list(data, estimated)
             return
 
-    # Dashboard Mode
+    # Handle Target-specific focus or general Dashboard Mode.
     target = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] not in ["add", "list"] else None
     if target in ("add", "list"):
         target = None
 
-    # Send the function but 把“获取数据的函数”传给 View，而不是传数据本身
-    # 这样 View 就可以在循环里不断调用它来刷新数据
+    # Inject data retrieval logic into the View to enable real-time updates.
     view.refresh_screen(target, get_combined_data, handle_add_from_view)
 
 
