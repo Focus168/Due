@@ -89,12 +89,11 @@ def refresh_screen(
         clear_screen()
         while True:
             # --- 1. Non-blocking Input Listener ---
-            clear_screen()
             if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
                 line = sys.stdin.readline()
                 if line: 
                     sys.stdout.write(SHOW) 
-                    print(f"\n{BOLD}>> PAUSED. Enter command (add/q/c):{RESET}")
+                    print(f"{BOLD}>> PAUSED. Enter command (add/q/c):{RESET}")
                     print(f"{DIM} Format: ls Show ALL deadlines (Dashboard){RESET}")
                     print(f"{DIM} Format: show \"Name\" Focus on ONE deadline{RESET}")
                     print(f"{DIM} Format: add \"Task Name\" \"YYYY-MM-DD HH:MM\" [--est]{RESET}")
@@ -113,8 +112,7 @@ def refresh_screen(
                             cmd = parts[0].lower()
 
                             if cmd == 'q':
-                                sys.stdout.write(SHOW)
-                                sys.exit(0)
+                                raise KeyboardInterrupt
                             
                             elif cmd == 'ls':
                                 # --- Switch to Dashboard Mode ---
@@ -178,7 +176,7 @@ def refresh_screen(
 
                                     # 3. Render countdown and sticky footer prompt
                                     sys.stdout.write(f"\r{color}Time until {name}: {timer}{RESET}\033[K")
-                                    sys.stdout.write(f"\n{DIM}[Press ENTER to Return]{RESET}\033[K\033[A")
+                                    sys.stdout.write(f"\n{DIM}[Press ENTER to Return Main Menu][Ctrl+C to quit]{RESET}\033[K\033[A")
                                     sys.stdout.flush()
 
                             elif cmd == 'add' and add_handler_func:
