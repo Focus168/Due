@@ -148,13 +148,13 @@ def refresh_screen(
                                     if sys.stdin in select.select([sys.stdin], [], [], 1.0)[0]:
                                         _ = sys.stdin.readline() 
                                         print(f"\n{GREEN}Returning to main menu...{RESET}")
+                                        time.sleep(0.5)
                                         clear_screen()
                                         print(f"\n{BOLD}>> PAUSED. Enter command (add/q/c):{RESET}")
                                         print(f"{DIM} Format: ls Show ALL deadlines (Dashboard){RESET}")
                                         print(f"{DIM} Format: show \"Name\" Focus on ONE deadline{RESET}")
                                         print(f"{DIM} Format: add \"Task Name\" \"YYYY-MM-DD HH:MM\" [--est]{RESET}")
                                         print(f"{DIM} Format: q (to quit){RESET}")
-                                        time.sleep(0.5)
                                         break 
 
                                     # 2. Calculate remaining time
@@ -216,7 +216,7 @@ def refresh_screen(
                 if not matches:
                     print(f"\n{RED}Target '{current_target}' not found. Switching to Dashboard...{RESET}")
                     current_target = None
-                    time.sleep(1)
+                    time.sleep(0.5)
                     continue
 
                 name, ddl = matches[0]
