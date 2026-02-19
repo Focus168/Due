@@ -122,5 +122,4 @@ def add_deadline(name, dt_str, estimated=False, data_path=None):
         estimated_set.add(name)
 
     save_deadlines(ddl_dict, estimated_set, path)
-    # 这里虽然是 Model，但为了方便 CLI 反馈，保留 print，或者以后改成 return True
     print(f"Added: {name} -> {dt_str}")

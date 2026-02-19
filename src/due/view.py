@@ -1,5 +1,6 @@
-"""
-The View layer should not directly reference the Model; it only accepts data dictionaries and callback functions.
+"""View layer for the DDL Countdown Dashboard.
+
+The View layer does not directly reference the Model. It solely accepts data dictionaries and callback functions to maintain a decoupled architecture.
 """
 import os
 import sys
@@ -11,11 +12,9 @@ import shlex
 import random
 from pathlib import Path
 from typing import Callable, Optional, Tuple, Dict, Set
-from . import utils
 
 def render_list(ddl_dict: Dict[str, datetime.datetime], estimated_set: Set[str]) -> None:
-    """
-    Renders a static list of all deadlines to stdout.
+    """Renders a static list of all deadlines to stdout.
 
     Args:
         ddl_dict: A dictionary mapping deadline names to datetime objects.
@@ -26,7 +25,7 @@ def render_list(ddl_dict: Dict[str, datetime.datetime], estimated_set: Set[str])
         return
 
     now = datetime.datetime.now()
-    # Sort by deadline date
+    
     for name in sorted(ddl_dict, key=lambda n: ddl_dict[n]):
         ddl = ddl_dict[name]
         rem = ddl - now
@@ -36,10 +35,7 @@ def render_list(ddl_dict: Dict[str, datetime.datetime], estimated_set: Set[str])
             if rem.total_seconds() > 0
             else "[expired]"
         )
-        # if rem.total_seconds() > 0:
-        #     status = f"(remaining {rem.days}d)"
-        # else:
-        #     status = "[expired]"
+
         print(f"{name}: {ddl.strftime('%Y-%m-%d %H:%M')} {status}{flag}")
 
 
@@ -48,24 +44,20 @@ def refresh_screen(
     data_fetcher_func: Callable[[], Tuple[Dict, Set]], 
     add_handler_func: Optional[Callable[[str, str, bool], None]] = None
 ) -> None:
-    """
-    Starts the main TUI (Text User Interface) loop with auto-refresh.
+    """Starts the main TUI (Text User Interface) loop with auto-refresh.
 
     Displays a dynamic dashboard of deadlines, sorted by urgency. The loop 
     refreshes every second and listens for user input to pause and execute 
     commands (e.g., adding new tasks).
 
     Args:
-        target_name: 
-            If provided, the dashboard filters to show only the deadline 
-            matching this substring (case-insensitive). If None, shows all.
-        data_fetcher_func: 
-            A callback function that returns a tuple `(ddl_dict, estimated_set)`.
-            This allows the view to pull fresh data on every tick without 
-            knowing about the storage backend.
-        add_handler_func: 
-            A callback function with signature `(name, time_str, is_estimated)`.
-            Used to handle 'add' commands entered during the pause state.
+        initial_target_name: A substring to filter and focus on a specific
+            deadline. If None, the dashboard shows all deadlines.
+        data_fetcher_func: A callback function returning a tuple of
+            `(ddl_dict, estimated_set)`, allowing the view to pull fresh data
+            without backend coupling.
+        add_handler_func: An optional callback function with signature
+            `(name, time_str, is_estimated)` to handle 'add' commands.
 
     Raises:
         KeyboardInterrupt: If the user presses Ctrl+C to exit.
@@ -78,36 +70,30 @@ def refresh_screen(
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m\033[38;5;240m"
-    HIDE = "\033[?25l" # Hide Cursor
-    SHOW = "\033[?25h" # Show Cursor
+    HIDE = "\033[?25l" 
+    SHOW = "\033[?25h" 
 
     first_run = True
     current_target = initial_target_name
 
     def clear_screen():
-        """Clears the terminal screen effectively on various platforms."""
-        if sys.stdout.isatty(): # Only clear if we're in a terminal
+        """Clears the terminal screen effectively across platforms."""
+        if sys.stdout.isatty():
             subprocess.run(["clear"])
         else:
-            sys.stdout.write("\033[2J\033[H") # ANSI escape to clear screen and move cursor to top-left
+            sys.stdout.write("\033[2J\033[H") 
             sys.stdout.flush()
-        # if os.name == 'nt':
-        #     os.system('cls')
-        # else:
-        #     os.system('clear')
 
-    try: # Hide cursor for better UX during dashboard display
+    try: 
         sys.stdout.write(HIDE)
         clear_screen()
         while True:
             # --- 1. Non-blocking Input Listener ---
-            # select.select() checks if sys.stdin has data waiting to be read.
-            # Timeout is 0, so it returns immediately (non-blocking).
             clear_screen()
             if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
                 line = sys.stdin.readline()
-                if line: # If user pressed ENTER or typed something
-                    sys.stdout.write(SHOW) # show cursor for input
+                if line: 
+                    sys.stdout.write(SHOW) 
                     print(f"\n{BOLD}>> PAUSED. Enter command (add/q/c):{RESET}")
                     print(f"{DIM} Format: ls Show ALL deadlines (Dashboard){RESET}")
                     print(f"{DIM} Format: show \"Name\" Focus on ONE deadline{RESET}")
@@ -118,7 +104,7 @@ def refresh_screen(
                         try:
                             raw_input = input(f"{BOLD}> {RESET}").strip()
 
-                            # If it is empty, press Enter -> Exit the pause and resume operation
+                            # Resume operation on empty input
                             if not raw_input:
                                 print("Resuming...")
                                 break
@@ -131,14 +117,14 @@ def refresh_screen(
                                 sys.exit(0)
                             
                             elif cmd == 'ls':
-                            # --- Switch back to Dashboard Mode ---
+                                # --- Switch to Dashboard Mode ---
                                 current_target = None
                                 print(f"{GREEN}Switched to Dashboard view.{RESET}")
                                 time.sleep(0.1)
                                 break
                             
                             elif cmd in ('show', 'focus'):
-                            # --- Independent rendering module: Target Mode ---
+                                # --- Target Mode rendering loop ---
                                 if len(parts) < 2:
                                     print(f"{RED}Error: Please specify a name. e.g., show 'ICLR 27'{RESET}")
                                     continue
@@ -155,12 +141,10 @@ def refresh_screen(
                                 clear_screen()
                                 print(f"{GREEN}Focusing on '{name}'...{RESET}")
                                 
-                                # Hide the cursor and get ready to start flashing
                                 sys.stdout.write(HIDE)
 
                                 while True:
-                                    # 1. Listen for exit signals (use select instead of sleep to achieve delay-free exit)
-                                    # timeout=1.0 means: If there is no key press, wait for 1 second (refresh interval); If there is a key press, return immediately
+                                    # 1. Listen for exit signals (non-blocking)
                                     if sys.stdin in select.select([sys.stdin], [], [], 1.0)[0]:
                                         _ = sys.stdin.readline() 
                                         print(f"\n{GREEN}Returning to main menu...{RESET}")
@@ -170,7 +154,7 @@ def refresh_screen(
                                         print(f"{DIM} Format: add \"Task Name\" \"YYYY-MM-DD HH:MM\" [--est]{RESET}")
                                         print(f"{DIM} Format: q (to quit){RESET}")
                                         time.sleep(0.5)
-                                        break # Break out of the infinite loop of the show and return to the outermost input to wait
+                                        break 
 
                                     # 2. Calculate remaining time
                                     now = datetime.datetime.now()
@@ -189,21 +173,14 @@ def refresh_screen(
                                         f"{remaining.seconds%60:02d}s"
                                     )
 
-                                    # 3. Rendering: Countdown + Bottom menu
-                                    # First line: Countdown
+                                    # 3. Render countdown and sticky footer prompt
                                     sys.stdout.write(f"\r{color}Time until {name}: {timer}{RESET}\033[K")
-                                    
-                                    # The second line: Grey friendly prompt (telling users how to get out)
                                     sys.stdout.write(f"\n{DIM}[Press ENTER to Return]{RESET}\033[K\033[A")
-                                    
                                     sys.stdout.flush()
                                 
-                                # After exiting the show loop, manually clear the screen for a better experience
                                 clear_screen()
-                                # At this point, the program will return to the outer "PAUSED" state and wait for the next command
 
                             elif cmd == 'add' and add_handler_func:
-                                # Robust Argument Parsing
                                 if len(parts) < 3:
                                     print(f"{RED}Error: Missing arguments.{RESET}")
                                     print("Usage: add \"Name\" \"Time\" [--est]")
@@ -212,7 +189,6 @@ def refresh_screen(
                                     time_str = parts[2]
                                     is_est = "--est" in parts or "--estimated" in parts
                                     
-                                    # Call the controller's handler
                                     try:
                                         add_handler_func(name, time_str, is_est)
                                         print(f"{GREEN}✓ Added '{name}' successfully.{RESET}")
@@ -225,15 +201,15 @@ def refresh_screen(
                         except ValueError as e:
                             print(f"{RED}Parsing Error: {e} (Did you forget a closing quote?){RESET}")
                     
-                time.sleep(1) # Give user a moment to read the result
-                sys.stdout.write(HIDE) # Hide cursor again
+                time.sleep(1) 
+                sys.stdout.write(HIDE) 
 
-            # --- 2. Normal refresh logic: Data Fetching & Rendering ---
+            # --- 2. Data Fetching & Dashboard Rendering ---
             now = datetime.datetime.now()
             all_ddls, estimated_set = data_fetcher_func()
 
             if current_target:
-                # Target Mode Logic
+                # Target Mode
                 key = current_target.upper()
                 matches = [(n, d) for n, d in all_ddls.items() if key in n.upper()]
                 if not matches:
@@ -261,7 +237,7 @@ def refresh_screen(
                 sys.stdout.flush()
 
             else:
-                # Dashboard Mode Logic (Auto-Align Version)
+                # Dashboard Mode
                 active = []
                 for name, ddl in all_ddls.items():
                     rem = ddl - now
@@ -270,10 +246,10 @@ def refresh_screen(
 
                 active.sort(key=lambda x: x[2])
 
-                # Dynamically calculate the width of the longest name
+                # Dynamically calculate column width
                 if active:
                     max_name_len = max(len(x[0]) for x in active)
-                    col_width = max(max_name_len, 12) # At least leave room for the word "DEADLINES"
+                    col_width = max(max_name_len, 12) 
                 else:
                     col_width = 12
                 
@@ -302,9 +278,8 @@ def refresh_screen(
     except KeyboardInterrupt:
         sys.stdout.write(SHOW)
 
-        # Get the data file path for a more informative exit message (showing where the state is saved)
+        # Determine data file path for exit metadata
         current_dir = os.getcwd()
-        # Directly calculate the standard storage path (following the logic of the Model)
         data_path = Path.home() / ".config" / "due" / "data.json"
 
         quotes = [
@@ -322,7 +297,7 @@ def refresh_screen(
         ]
         quote = random.choice(quotes)
         
-        # Print an elegant exit interface
+        # Render exit screen
         CYAN = "\033[38;5;51m"
         GRAY = "\033[38;5;240m"
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
