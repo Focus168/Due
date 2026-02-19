@@ -148,6 +148,7 @@ def refresh_screen(
                                     if sys.stdin in select.select([sys.stdin], [], [], 1.0)[0]:
                                         _ = sys.stdin.readline() 
                                         print(f"\n{GREEN}Returning to main menu...{RESET}")
+                                        clear_screen()
                                         print(f"\n{BOLD}>> PAUSED. Enter command (add/q/c):{RESET}")
                                         print(f"{DIM} Format: ls Show ALL deadlines (Dashboard){RESET}")
                                         print(f"{DIM} Format: show \"Name\" Focus on ONE deadline{RESET}")
@@ -162,6 +163,8 @@ def refresh_screen(
                                     
                                     if remaining.total_seconds() <= 0:
                                         print(f"\r{RED}{name} TIME'S UP!   {RESET}")
+                                        time.sleep(0.5)
+                                        clear_screen()
                                         break
 
                                     days = remaining.days
@@ -177,8 +180,6 @@ def refresh_screen(
                                     sys.stdout.write(f"\r{color}Time until {name}: {timer}{RESET}\033[K")
                                     sys.stdout.write(f"\n{DIM}[Press ENTER to Return]{RESET}\033[K\033[A")
                                     sys.stdout.flush()
-                                
-                                clear_screen()
 
                             elif cmd == 'add' and add_handler_func:
                                 if len(parts) < 3:
@@ -254,7 +255,7 @@ def refresh_screen(
                     col_width = 12
                 
                 clear_screen()
-                print(f"{BOLD}{'DEADLINES':^{col_width}} | {'BEIJING TIME':^20} | {'REMAINING':^18}{RESET}", flush=True)
+                print(f"\n{BOLD}{'DEADLINES':^{col_width}} | {'BEIJING TIME':^20} | {'REMAINING':^18}{RESET}", flush=True)
                 print("-" * (col_width + 43), flush=True)
 
                 for name, ddl, rem in active:
